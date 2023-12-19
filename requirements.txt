@@ -1,5 +1,5 @@
-pandas
 folium
+pandas
 streamlit
 streamlit_folium
 sqlite3
