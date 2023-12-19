@@ -2,5 +2,4 @@ folium
 pandas
 streamlit
 streamlit_folium
-sqlite3
 jinja2
