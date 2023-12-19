@@ -329,7 +329,7 @@ class App():
         # Display the map in Streamlit
         self.selection()              
         try:
-            st_map = folium_static(self.map_agencies, width=850, height=850)
+            st_map = folium_static(self.map_agencies, width=600, height=700)
         except:
             print("Error rendering")
             print(traceback.format_exc())
