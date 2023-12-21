@@ -1,7 +1,7 @@
 import pandas as pd
 import folium
 import streamlit as st
-from streamlit_folium import folium_static
+from streamlit_folium import st_folium, folium_static
 import geopandas as gpd
 from folium.plugins import MarkerCluster
 import sqlite3
@@ -17,6 +17,13 @@ categ = ["DPT-Agence", "Projet-Commerce-Agence", "Projet-DPP-Agence",
         "Projet-Ops-Agence"]
 
 name_table = {'Catégorie':"categorie", "Titre":"titre_projet","Description":"descriptif", "Début": "date_debut","Fin":"date_fin", "Agence":"code_agence"}
+
+@st.cache_data()
+def init_data(_obj):
+    marker_cluster = None
+    markers = {}
+    today = datetime.date.today()
+    return today, marker_cluster, markers
 
 def  init_session_state():
     if st.session_state.get('step') is None:
@@ -60,7 +67,6 @@ def delete_rows(to_delete, cursor, conn):
         )
     """)
     query = sql_template.render(ids=to_delete)
-    print(query)
     cursor.execute(query)
     conn.commit()
 
@@ -128,11 +134,8 @@ class App():
         self.year = year
         self.conn = conn
         self.get_date()
-        self.today = datetime.date.today()
         self.localisation = localisation
-        self.markers = {}
         self.cursor = cursor
-        self.marker_cluster = None
         self.map_agencies = map_agencies
         self.draw_map()
 
@@ -212,6 +215,33 @@ class App():
             df = pd.DataFrame()
         st.session_state.updated_df = st.data_editor(df, num_rows="dynamic",  key="my_key", on_change=callback, args=[index, self.cursor, self.conn, self, agence])
 
+    def create_form(self):
+        agence_picker = st.selectbox("Choisir Agence", [i for i in self.agences_name],
+                                             index=None, placeholder="Choisir une agence")
+        category = st.selectbox("Choisir catégorie", [i for i in categ], index=None, 
+                                placeholder="Choisir une catégorie")
+        title = st.text_input(
+            "Titre 👇",
+            label_visibility=st.session_state.visibility,
+            disabled=st.session_state.disabled,
+            placeholder="Titre",
+        )
+        description = st.text_input(
+            "Description 👇",
+            label_visibility=st.session_state.visibility,
+            disabled=st.session_state.disabled,
+            placeholder="Description",
+        )
+        today = datetime.date.today()
+        first_date = st.date_input("Date de début", today )
+        second_date = st.date_input("Date de fin", today)
+
+        submitted = st.form_submit_button("Submit")
+        if submitted:
+            print("Semestre: ", st.session_state["semestre"])
+            self.add_agence(agence=agence_picker, category=category, title=title,
+                        description=description, begin=first_date, end=second_date)
+
     def selection(self):
         # Set the layout to a menu-like structure
         sidebar = st.sidebar
@@ -226,31 +256,7 @@ class App():
                 self.display_editable_df(chosen_agence)
             st.write("Ajouter une tâche")
             with st.form("Ajouter une tâche"):
-                agence_picker = st.selectbox("Choisir Agence", [i for i in self.agences_name],
-                                             index=None, placeholder="Choisir une agence")
-                category = st.selectbox("Choisir catégorie", [i for i in categ], index=None, 
-                                        placeholder="Choisir une catégorie")
-                title = st.text_input(
-                    "Titre 👇",
-                    label_visibility=st.session_state.visibility,
-                    disabled=st.session_state.disabled,
-                    placeholder="Titre",
-                )
-                description = st.text_input(
-                    "Description 👇",
-                    label_visibility=st.session_state.visibility,
-                    disabled=st.session_state.disabled,
-                    placeholder="Description",
-                )
-                self.today = datetime.date.today()
-                first_date = st.date_input("Date de début", self.today )
-                second_date = st.date_input("Date de fin", self.today)
-
-                submitted = st.form_submit_button("Submit")
-                if submitted:
-                    print("Semestre: ", st.session_state["semestre"])
-                    self.add_agence(agence=agence_picker, category=category, title=title,
-                                description=description, begin=first_date, end=second_date)
+                self.create_form()
 
     def mark_card(self):
             colors = ["green", "yellow", "red"]
@@ -259,6 +265,8 @@ class App():
             agences = self.localisation["code_agence"].to_list()
             self.agences_name = agences
             counts, infos = request_db(agences, self.conn, self.condition)
+            if self.marker_cluster != None:
+                self.marker_cluster.remove_from(self.map_agencies)
             marker_cluster = MarkerCluster().add_to(self.map_agencies)
             for i in range(len((longitudes))):
                 agence = agences[i]
@@ -294,23 +302,24 @@ class App():
                 if st.button("Semestre 1"):
                     st.session_state["semestre"] = semesters["first"]
                     self.time_interval == False
-                    print(st.session_state["semestre"])
-                    st.cache_data.clear()                                                 
-                    st.rerun()                                                 
-
+                    st.cache_data.clear()
+                    st.rerun()                        
         with col2:
             if st.button("Semestre 2"):
                 self.time_interval == False
-                st.session_state["semestre"] = semesters["second"] 
+                st.session_state["semestre"] = semesters["second"]
                 st.cache_data.clear()
-                st.rerun()                                                 
+                st.rerun()   
         with col3:
             if st.button("Année"):
                 self.time_interval == False
                 st.session_state["semestre"] = "all"
-                st.cache_data.clear()                                                 
-        
+                st.cache_data.clear()                                  
+
     def draw_map(self):
+        
+        self.today, self.marker_cluster, self.markers = init_data(self)
+
         self.time_interval = False
         col_1, col_2, col_3 = st.columns(3)
         with col_1:
@@ -330,6 +339,8 @@ class App():
         self.selection()              
         try:
             st_map = folium_static(self.map_agencies, width=600, height=700)
+            #st_map = st_folium(self.map_agencies, width=600, height=700)
+
         except:
             print("Error rendering")
             print(traceback.format_exc())
