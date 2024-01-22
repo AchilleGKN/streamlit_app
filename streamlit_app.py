@@ -11,15 +11,18 @@ import traceback
 from collections import Counter
 import plotly.graph_objects as go
 
-semesters = {"first": datetime.datetime(1999, 8, 31),
-            "second": datetime.datetime(1999, 2, 28)}
+semesters = {"all":"all",
+            "first":   datetime.datetime(1999, 1, 1),
+            "second":   datetime.datetime(1999, 4, 1), 
+            "third":    datetime.datetime(1999, 7, 1),
+            "fourth":   datetime.datetime(1999, 10, 1)
+            }
 
 categ = ["DPT-Agence", "Projet-Commerce-Agence", "Projet-DPP-Agence",
         "Projet Contrôle de gestion", "Projet LTL-FTL", "Projet-DRC-Agence",
         "Projet-Ops-Agence"]
 
 name_table = {'Catégorie':"categorie", "Titre":"titre_projet","Description":"descriptif", "Début": "date_debut","Fin":"date_fin", "Agence":"code_agence"}
-
 @st.cache_data()
 def init_data(_obj):
     marker_cluster = None
@@ -31,6 +34,9 @@ def  init_session_state():
     if st.session_state.get('step') is None:
         st.session_state['step'] = 0
     
+    if st.session_state.get("tmp") is None:
+        st.session_state["tmp"] = "all"
+
     if st.session_state.get('semestre') is None:
         st.session_state["semestre"] = "all"
         
@@ -76,9 +82,9 @@ def display_circular_chart(data):
     cnter = Counter(data)
     categ = list(cnter.keys())
     qtity = list(cnter.values())
-
-    fig = go.Figure(data=[go.Pie(labels=categ, values=qtity, hole=.3)])
-    st.plotly_chart(fig, use_container_width=True)
+    if len(categ) > 1:
+        fig = go.Figure(data=[go.Pie(labels=categ, values=qtity, hole=.3)])
+        st.plotly_chart(fig, use_container_width=True)
     return
 
 
@@ -130,8 +136,7 @@ def request_db(_agences, _conn, _condition):
             except Exception as e:
                 print(e)
                 project_count = 0
-        else:
-            project_count = 0
+        else: project_count = 0
         count.append(project_count)
         sec_query = f"SELECT * FROM Projets WHERE code_agence = '{i}'" +  _condition
         cursor.execute(sec_query)
@@ -190,32 +195,52 @@ class App():
         if st.session_state["semestre"] == "all":
             self.condition = ""
         if st.session_state["semestre"] == semesters["first"]:
-            self.condition = "AND (strftime('%m', date_debut) < '03' OR strftime('%m', date_debut) > '08')"
+            self.condition = "AND (strftime('%m', date_debut) < '04')"
         if st.session_state["semestre"] == semesters["second"]:
-            self.condition = "AND (strftime('%m', date_debut) > '02' AND strftime('%m', date_debut) < '09')"
+            self.condition = "AND (strftime('%m', date_debut) > '03' AND strftime('%m', date_debut) < '07')"
+        if st.session_state["semestre"] == semesters["third"]:
+            self.condition = "AND (strftime('%m', date_debut) > '06' AND strftime('%m', date_debut) < '10')"
+        if st.session_state["semestre"] == semesters["fourth"]:
+            self.condition = "AND (strftime('%m', date_debut) > '09' AND strftime('%m', date_debut) < '13')"
 
-    def make_request(self, agence):
+    def make_request(self, agence, project):
         time = 'where ' + self.condition[4:] if len(self.condition) > 1 else ""
-        if agence == "Toutes les agences" and self.time_interval == False:
+        if agence == "Toutes les agences" and project == "Tous les projets" and self.time_interval == False:
             query = f"SELECT * FROM Projets {time}"
             rows = self.cursor.execute(query).fetchall()
-        elif agence == "Toutes les agences" and self.time_interval == True:
+        elif agence == "Toutes les agences" and project == "Tous les projets" and self.time_interval == True:
             query = f"SELECT * FROM Projets where date_debut >= ? and date_fin <= ?"
             rows = self.cursor.execute(query, (self.debut, self.fin)).fetchall()
-        elif agence != "Toutes les agences" and self.time_interval == False:
-            query = f"SELECT * FROM Projets where code_agence = ? " + self.condition
-            rows = self.cursor.execute(query, (str(agence), )).fetchall()
-        else:
-            query = f"SELECT * FROM Projets where code_agence = ? and date_debut >= ? and date_fin <= ?"
-            rows = self.cursor.execute(query, (str(agence), self.debut, self.fin)).fetchall()
-        return rows
-    
+        
+        elif agence == "Toutes les agences" and self.time_interval == False:
+            query = f"SELECT * FROM Projets where categorie = ?" + self.condition
+            rows = self.cursor.execute(query, (project,)).fetchall()
+        elif agence == "Toutes les agences" and self.time_interval == True:
+            query = f"SELECT * FROM Projets where date_debut >= ? and date_fin <= ? and categorie = ?"
+            rows = self.cursor.execute(query, (self.debut, self.fin, project)).fetchall()
 
-    def display_editable_df(self, agence):
-        rows = self.make_request(agence)
+        elif project == "Tous les projets" and self.time_interval == False:
+            query = f"SELECT * FROM Projets where code_agence = ?" + self.condition
+            rows = self.cursor.execute(query, ((str(agence), )) ).fetchall()
+        elif project == "Tous les projets" and self.time_interval == True:
+            query = f"SELECT * FROM Projets where date_debut >= ? and date_fin <= ? and code_agence = ?"
+            rows = self.cursor.execute(query, (self.debut, self.fin, str(agence))).fetchall()
+
+        elif self.time_interval == False:
+            query = f"SELECT * FROM Projets where code_agence = ? and categorie=? " + self.condition
+            rows = self.cursor.execute(query, (str(agence), project)).fetchall()
+        else:
+            query = f"SELECT * FROM Projets where code_agence = ? and categorie = ?  and date_debut >= ? and date_fin <= ?"
+            rows = self.cursor.execute(query, (str(agence), project, self.debut, self.fin)).fetchall()
+        return rows
+
+    def display_editable_df(self, agence, project, col2):
+        print(project)
+        rows = self.make_request(agence, project)
         try:
             df = pd.DataFrame(rows, columns=['Index', 'Catégorie', 'Titre', 'Description', 'Début', 'Fin', "Agence"])
             cols = df.columns.tolist()
+            # Reindex to have the last column first
             cols = [cols[-1]] + cols[:-1]
             df = df[cols]
             index = df["Index"]
@@ -224,7 +249,8 @@ class App():
             print(e)
             df = pd.DataFrame()
         st.session_state.updated_df = st.data_editor(df, num_rows="dynamic",  key="my_key", on_change=callback, args=[index, self.cursor, self.conn, self, agence])
-        display_circular_chart(df["Catégorie"].to_list())
+        with col2:
+            display_circular_chart(df["Catégorie"].to_list())
 
     def create_form(self):
         agence_picker = st.selectbox("Choisir Agence", [i for i in self.agences_name],
@@ -254,17 +280,26 @@ class App():
                         description=description, begin=first_date, end=second_date)
 
     def selection(self):
-        # Set the layout to a menu-like structure
-        sidebar = st.sidebar
+        st.write("<b>Filtre</b>", unsafe_allow_html=True)
+        col1, col2, col3 = st.columns((0.5, 0.5, 1))
 
-        # Create a form to add an agency
-        with sidebar:
+        with col1:
             agences = [i for i in self.agences_name]
             agences = list(sorted(agences))
             agences.insert(0, "Toutes les agences")
-            chosen_agence = st.selectbox("Détail Agence", agences)
-            if chosen_agence:
-                self.display_editable_df(chosen_agence)
+            chosen_agence = st.selectbox("Agence", agences)
+        with col2:
+            projects = list(sorted(categ))
+            projects.insert(0, "Tous les projets")
+            chosen_project = st.selectbox("Projet", projects)
+        col1, col2 = st.columns((1, 0.5))
+        with col1:
+            if chosen_agence or chosen_project:
+                self.display_editable_df(chosen_agence, chosen_project, col2)
+        # Set the layout to a menu-like structure
+        sidebar = st.sidebar
+        # Create a form to add an agency
+        with sidebar:
             st.write("Ajouter une tâche")
             with st.form("Ajouter une tâche"):
                 self.create_form()
@@ -310,31 +345,27 @@ class App():
         self.fin = datetime.datetime.combine(fin, datetime.datetime.min.time())
         return
 
-    def display_time(self, col1, col2, col3):
+    def display_time(self):
+        concordance_semesters = {f"Année {self.year}":"all", 
+                                  "1er Trimestre":"first",
+                                  "2ème Trimestre":"second",
+                                  "3ème Trimestre":"third",
+                                  "4ème Trimestre":"fourth"}
+        col1, col2= st.columns((0.5, 1))
         with col1:
-            if st.button("Semestre 1"):
-                st.session_state["semestre"] = semesters["first"]
-                self.time_interval == False
-                st.cache_data.clear()
-                st.rerun()                        
-        with col2:
-            if st.button("Semestre 2"):
-                self.time_interval == False
-                st.session_state["semestre"] = semesters["second"]
-                st.cache_data.clear()
-                st.rerun()   
-        with col3:
-            if st.button("Année"):
-                self.time_interval == False
-                st.session_state["semestre"] = "all"
-                st.cache_data.clear()                                  
-
-    def draw_map(self):
+            chosen_periode = st.selectbox("Période", [x for x in concordance_semesters])
+        if chosen_periode and st.session_state["tmp"] != chosen_periode:
+            st.session_state["semestre"] = semesters[concordance_semesters[chosen_periode]]
+            st.session_state["tmp"] = chosen_periode
+            st.cache_data.clear()
+            st.rerun()
         
-        self.today, self.marker_cluster, self.markers = init_data(self)
+    def draw_map(self):
 
+        self.today, self.marker_cluster, self.markers = init_data(self)
         self.time_interval = False
-        col_1, col_2, col_3 = st.columns(3)
+        st.write("<b>Sélectionner un intervalle de date ou une période</b>", unsafe_allow_html=True)
+        col_1, col_2, col_3 = st.columns((0.5, 0.5, 0.5))
         with col_1:
             debut = st.date_input("Début", self.today )
         with col_2:
@@ -344,22 +375,17 @@ class App():
             selectionner = st.button("Sélectionner")
         if selectionner:
             self.select_periods(debut, fin)
-        col1, col2, col3 = st.columns(3)
-        self.display_time(col1, col2, col3)
+        self.display_time()
         if len(self.markers) == 0:
             self.mark_card()
         # Display the map in Streamlit
         self.selection()              
         try:
-            st_map = folium_static(self.map_agencies, width=600, height=700)
+            st_map = folium_static(self.map_agencies, width=800, height=800)
             #st_map = st_folium(self.map_agencies, width=600, height=700)
-
         except:
             print("Error rendering")
             print(traceback.format_exc())
-            import sys
-
-            sys.exit(0)
 
 @st.cache_resource()
 def fetch_and_clean_data(_conn):
@@ -368,12 +394,11 @@ def fetch_and_clean_data(_conn):
     localisation = pd.read_sql_query(query, _conn)
 
     today = datetime.date.today()
-    if today.month > semesters["first"].month:
+    if today.month > 8:
         year = today.year
     else:
         year = today.year - 1
     return geo_data, localisation, year
-
 
 @st.cache_resource(hash_funcs={folium.Map: lambda _: None})
 def create_map(_geo_data):
@@ -384,6 +409,8 @@ def create_map(_geo_data):
 
 def main():
     init_session_state()
+    st.set_page_config(layout="wide")
+
     with sqlite3.connect('planning.db', check_same_thread=False) as conn:
         cursor = conn.cursor()
         geo_data, localisation, year = fetch_and_clean_data(conn)
